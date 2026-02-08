@@ -1,1 +1,1 @@
-# FastQpp
+# FastQ++
