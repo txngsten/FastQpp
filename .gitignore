@@ -3,3 +3,6 @@
 
 # Moody camel src
 concurrentqueue-master
+
+# Atomic queue src
+atomic_queue-master
