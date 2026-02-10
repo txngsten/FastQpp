@@ -5,10 +5,10 @@
 #include <utility>
 #include <queue>
 
-template <typename  T>
-class MutexQ {
+template <typename T>
+class MutexQueue {
 public:
-    MutexQ() = default;
+    MutexQueue() = default;
 
     void write(T data) {
         std::lock_guard<std::mutex> lock(m);
