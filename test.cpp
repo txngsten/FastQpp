@@ -2,7 +2,7 @@
 #include "src/mutex_deque.hpp"
 #include "third_party/concurrentqueue.h"
 #include "third_party/atomic_queue/atomic_queue.h"
-#include "folly/MPMCQueue.h"
+#include <folly/MPMCQueue.h>
 #include <boost/lockfree/queue.hpp>
 #include <tbb/concurrent_queue.h>
 
@@ -147,7 +147,7 @@ uint64_t runDequeBenchmark(Queue& q, int numThreads) {
     }
 
     start.store(true, std::memory_order_release);
-    std::this_thread::sleep_for(std::chrono::seconds(3));
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
     stop.store(true, std::memory_order_release);
 
     for (auto& t : workers) {
@@ -176,7 +176,7 @@ std::string makeTimestamp() {
     return oss.str();
 }
 
-std::ofstream out("../data/benchmark_results/results_" + makeTimestamp() + ".txt");
+// std::ofstream out("../data/benchmark_results/results_" + makeTimestamp() + ".txt");
 
 
 void dequeueBenchmark() {
@@ -194,9 +194,9 @@ void dequeueBenchmark() {
 
         {
             // AtomicQueue
-            atomic_queue::AtomicQueue2<SmallPayload, CAPACITY> atomicQ;
-            populateQueue(atomicQ, CAPACITY);
-            auto ops = runDequeBenchmark(atomicQ, N);
+            auto atomicQ = std::make_unique<atomic_queue::AtomicQueue2<SmallPayload, CAPACITY>>();
+            populateQueue(*atomicQ, CAPACITY);
+            auto ops = runDequeBenchmark(*atomicQ, N);
             std::cout << "AtomicQueue " << N << " threads, total ops: " << ops << '\n';
         }
 
