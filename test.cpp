@@ -2,7 +2,7 @@
 #include "src/mutex_deque.hpp"
 #include "third_party/concurrentqueue.h"
 #include "third_party/atomic_queue/atomic_queue.h"
-#include <folly/MPMCQueue.h>
+#include "folly/MPMCQueue.h"
 #include <boost/lockfree/queue.hpp>
 #include <tbb/concurrent_queue.h>
 
@@ -15,6 +15,10 @@
 #include <thread>
 #include <atomic>
 #include <iostream>
+#include <chrono>
+#include <cstdint>
+#include <cstddef>
+
 
 struct SmallPayload {
     uint64_t value;
@@ -108,7 +112,58 @@ struct QueueAdapter<MutexDeque<T>> {
 
 /* -------------------------------------------------------------------------------------------- */
 
+template <typename Queue>
+uint64_t runDequeBenchmark(Queue& q, int numThreads) {
+    std::atomic<int> ready {0};
+    std::atomic<bool> start {false};
+    std::atomic<bool> stop {false};
 
+    std::atomic<uint64_t> totalOps {0};
+
+    std::vector<std::thread> workers;
+    for (int i {}; i < numThreads; i++) {
+        workers.emplace_back([&] {
+            SmallPayload v {};
+            uint64_t localOps {};
+
+
+            ready.fetch_add(1, std::memory_order_release);
+
+            while (!start.load(std::memory_order_acquire)) {
+                std::this_thread::yield();
+            }
+
+            while (!stop.load(std::memory_order_relaxed)) {
+                if (QueueAdapter<Queue>::pop(q, v)) {
+                    localOps++;
+                }
+            }
+            totalOps.fetch_add(localOps, std::memory_order_relaxed);
+        });
+    }
+
+    while (ready.load(std::memory_order_acquire) < numThreads) {
+        std::this_thread::yield();
+    }
+
+    start.store(true, std::memory_order_release);
+    std::this_thread::sleep_for(std::chrono::seconds(3));
+    stop.store(true, std::memory_order_release);
+
+    for (auto& t : workers) {
+        t.join();
+    }
+
+    return totalOps.load();
+}
+
+template <typename Queue>
+void populateQueue(Queue& q, size_t capacity) {
+    for (size_t i {}; i < capacity; i++) {
+        SmallPayload v {static_cast<uint64_t>(i)};
+        QueueAdapter<Queue>::push(q, v);
+    }
+}
 
 std::string makeTimestamp() {
     auto now = std::chrono::system_clock::now();
@@ -124,64 +179,69 @@ std::string makeTimestamp() {
 std::ofstream out("../data/benchmark_results/results_" + makeTimestamp() + ".txt");
 
 
-
 void dequeueBenchmark() {
-    constexpr size_t CAPACITY {65536};
-
-    // Queue initialisation
-    moodycamel::ConcurrentQueue<SmallPayload> moodyQ(CAPACITY);
-    for (size_t i {}; i < CAPACITY; ++i) {
-        moodyQ.enqueue(SmallPayload{static_cast<SmallPayload>(i)});
-    }
-
-    atomic_queue::AtomicQueue2<SmallPayload, CAPACITY> atomicQ;
-    for (size_t i {}; i < CAPACITY; i++) {
-        atomicQ.push(static_cast<SmallPayload>(i));
-    }
-
-    folly::MPMCQueue<SmallPayload> follyQ(CAPACITY);
-    for (size_t i {}; i < CAPACITY; i++) {
-        follyQ.write(static_cast<SmallPayload>(i));
-    }
-
-    boost::lockfree::queue<SmallPayload> boostQ(CAPACITY);
-    for (size_t i {}; i < CAPACITY; i++) {
-        boostQ.push(static_cast<SmallPayload>(i));
-    }
-
-    tbb::concurrent_queue<SmallPayload> tbbQ;
-    for (size_t i {}; i < CAPACITY; i++) {
-        tbbQ.push(static_cast<SmallPayload>(i));
-    }
-
-    MutexQueue<SmallPayload> mutexQ;
-    for (size_t i {}; i < CAPACITY; i++) {
-        mutexQ.write(static_cast<SmallPayload>(i));
-    }
-
-    MutexDeque<SmallPayload> mutexDQ;
-    for (size_t i {}; i < CAPACITY; i++) {
-        mutexDQ.write(static_cast<SmallPayload>(i));
-    }
+    constexpr size_t CAPACITY = 10'000'000;
 
     std::vector<int> numThreads{{1, 2, 4, 8}};
     for (int N : numThreads) {
-        std::atomic<int> ready {};
-        std::atomic<bool> start {false};
-        std::atomic<bool> stop {false};
+        {
+            // MoodyCamel
+            moodycamel::ConcurrentQueue<SmallPayload> moodyQ(CAPACITY);
+            populateQueue(moodyQ, CAPACITY);
+            auto ops = runDequeBenchmark(moodyQ, N);
+            std::cout << "MoodyCamel " << N << " threads, total ops: " << ops << '\n';
+        }
 
-        std::vector<std::thread> workers;
+        {
+            // AtomicQueue
+            atomic_queue::AtomicQueue2<SmallPayload, CAPACITY> atomicQ;
+            populateQueue(atomicQ, CAPACITY);
+            auto ops = runDequeBenchmark(atomicQ, N);
+            std::cout << "AtomicQueue " << N << " threads, total ops: " << ops << '\n';
+        }
 
+        {
+            // Folly
+            folly::MPMCQueue<SmallPayload> follyQ(CAPACITY);
+            populateQueue(follyQ, CAPACITY);
+            auto ops = runDequeBenchmark(follyQ, N);
+            std::cout << "Folly " << N << " threads, total ops: " << ops << '\n';
+        }
 
+        {
+            // Boost
+            boost::lockfree::queue<SmallPayload> boostQ(CAPACITY);
+            populateQueue(boostQ, CAPACITY);
+            auto ops = runDequeBenchmark(boostQ, N);
+            std::cout << "Boost " << N << " threads, total ops: " << ops << '\n';
+        }
 
+        {
+            // TBB
+            tbb::concurrent_queue<SmallPayload> tbbQ;
+            populateQueue(tbbQ, CAPACITY);
+            auto ops = runDequeBenchmark(tbbQ, N);
+            std::cout << "TBB " << N << " threads, total ops: " << ops << '\n';
+        }
 
+        {
+            // std::mutex Queue
+            MutexQueue<SmallPayload> mutexQ;
+            populateQueue(mutexQ, CAPACITY);
+            auto ops = runDequeBenchmark(mutexQ, N);
+            std::cout << "Mutex Queue " << N << " threads, total ops: " << ops << '\n';
+        }
+
+        {
+            // std::mutex Deque
+            MutexDeque<SmallPayload> mutexDQ;
+            populateQueue(mutexDQ, CAPACITY);
+            auto ops = runDequeBenchmark(mutexDQ, N);
+            std::cout << "Mutex Deque " << N << " threads, total ops: " << ops << '\n';
+        }
     }
 }
 
-
-
-
-
 int main() {
-
+    dequeueBenchmark();
 }
