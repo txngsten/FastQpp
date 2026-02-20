@@ -1,0 +1,29 @@
+queue,threads,total_ops
+MoodyCamel,1,2290970
+AtomicQueue,1,5187033
+Folly,1,1655558
+Boost,1,1445468
+TBB,1,2503789
+Mutex Queue,1,7059140
+Mutex Deque,1,8035730
+MoodyCamel,2,2617366
+AtomicQueue,2,3167086
+Folly,2,1742558
+Boost,2,1339048
+TBB,2,3326768
+Mutex Queue,2,3379739
+Mutex Deque,2,3953992
+MoodyCamel,4,2067674
+AtomicQueue,4,1661536
+Folly,4,1444373
+Boost,4,1152579
+TBB,4,2411877
+Mutex Queue,4,3040525
+Mutex Deque,4,3519712
+MoodyCamel,8,1545506
+AtomicQueue,8,750286
+Folly,8,1134432
+Boost,8,913753
+TBB,8,767381
+Mutex Queue,8,1794647
+Mutex Deque,8,2048345
