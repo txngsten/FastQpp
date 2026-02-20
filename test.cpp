@@ -165,20 +165,6 @@ void populateQueue(Queue& q, size_t capacity) {
     }
 }
 
-std::string makeTimestamp() {
-    auto now = std::chrono::system_clock::now();
-    std::time_t t = std::chrono::system_clock::to_time_t(now);
-
-    std::tm tm = *std::localtime(&t);
-
-    std::ostringstream oss;
-    oss << std::put_time(&tm, "%Y-%m-%d_%H-%M-%S");
-    return oss.str();
-}
-
-// std::ofstream out("../data/benchmark_results/results_" + makeTimestamp() + ".txt");
-
-
 void dequeueBenchmark() {
     constexpr size_t CAPACITY = 10'000'000;
 
