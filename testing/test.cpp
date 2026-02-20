@@ -1,7 +1,7 @@
-#include "src/mutex_queue.hpp"
-#include "src/mutex_deque.hpp"
-#include "third_party/concurrentqueue.h"
-#include "third_party/atomic_queue/atomic_queue.h"
+#include "../src/mutex_queue.hpp"
+#include "../src/mutex_deque.hpp"
+#include "../third_party/concurrentqueue.h"
+#include "../third_party/atomic_queue/atomic_queue.h"
 #include <folly/MPMCQueue.h>
 #include <boost/lockfree/queue.hpp>
 #include <tbb/concurrent_queue.h>
@@ -168,7 +168,7 @@ void populateQueue(Queue& q, size_t capacity) {
 void dequeueBenchmark() {
     constexpr size_t CAPACITY = 10'000'000;
 
-    std::vector<int> numThreads{{1, 2, 4, 8}};
+    std::vector<int> numThreads{{1, 2, 4, 8, 12, 16, 32}};
     for (int N : numThreads) {
         {
             // MoodyCamel

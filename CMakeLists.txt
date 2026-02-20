@@ -22,7 +22,7 @@ find_package(glog CONFIG REQUIRED)
 find_package(gflags CONFIG REQUIRED)
 
 # ---------------- Executable ----------------
-add_executable(testbench test.cpp)
+add_executable(testbench testing/test.cpp)
 
 target_link_libraries(testbench PRIVATE
         Boost::headers
