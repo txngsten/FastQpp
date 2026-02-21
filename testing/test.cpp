@@ -6,18 +6,12 @@
 #include <boost/lockfree/queue.hpp>
 #include <tbb/concurrent_queue.h>
 
-#include <sstream>
-#include <iomanip>
 #include <chrono>
-#include <string>
-#include <fstream>
 #include <vector>
 #include <thread>
 #include <atomic>
 #include <iostream>
-#include <chrono>
-#include <cstdint>
-#include <cstddef>
+#include <memory>
 
 
 struct SmallPayload {
@@ -147,7 +141,7 @@ uint64_t runDequeBenchmark(Queue& q, int numThreads) {
     }
 
     start.store(true, std::memory_order_release);
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
     stop.store(true, std::memory_order_release);
 
     for (auto& t : workers) {
@@ -168,14 +162,14 @@ void populateQueue(Queue& q, size_t capacity) {
 void dequeueBenchmark() {
     constexpr size_t CAPACITY = 10'000'000;
 
-    std::vector<int> numThreads{{1, 2, 4, 8, 12, 16, 32}};
+    std::vector<int> numThreads{{1, 2, 4, 8, 10, 12, 14, 16}};
     for (int N : numThreads) {
         {
             // MoodyCamel
             moodycamel::ConcurrentQueue<SmallPayload> moodyQ(CAPACITY);
             populateQueue(moodyQ, CAPACITY);
             auto ops = runDequeBenchmark(moodyQ, N);
-            std::cout << "MoodyCamel " << N << " threads, total ops: " << ops << '\n';
+            std::cout << "MoodyCamel " << N << " threads, " << ops * 4 << " ops per second\n";
         }
 
         {
@@ -183,7 +177,7 @@ void dequeueBenchmark() {
             auto atomicQ = std::make_unique<atomic_queue::AtomicQueue2<SmallPayload, CAPACITY>>();
             populateQueue(*atomicQ, CAPACITY);
             auto ops = runDequeBenchmark(*atomicQ, N);
-            std::cout << "AtomicQueue " << N << " threads, total ops: " << ops << '\n';
+            std::cout << "AtomicQueue " << N << " threads, " << ops * 4 << " ops per second\n";
         }
 
         {
@@ -191,7 +185,7 @@ void dequeueBenchmark() {
             folly::MPMCQueue<SmallPayload> follyQ(CAPACITY);
             populateQueue(follyQ, CAPACITY);
             auto ops = runDequeBenchmark(follyQ, N);
-            std::cout << "Folly " << N << " threads, total ops: " << ops << '\n';
+            std::cout << "Folly " << N << " threads, total ops: " << ops * 4 << " ops per second\n";
         }
 
         {
@@ -199,7 +193,7 @@ void dequeueBenchmark() {
             boost::lockfree::queue<SmallPayload> boostQ(CAPACITY);
             populateQueue(boostQ, CAPACITY);
             auto ops = runDequeBenchmark(boostQ, N);
-            std::cout << "Boost " << N << " threads, total ops: " << ops << '\n';
+            std::cout << "Boost " << N << " threads, total ops: " << ops * 4 << " ops per second\n";
         }
 
         {
@@ -207,7 +201,7 @@ void dequeueBenchmark() {
             tbb::concurrent_queue<SmallPayload> tbbQ;
             populateQueue(tbbQ, CAPACITY);
             auto ops = runDequeBenchmark(tbbQ, N);
-            std::cout << "TBB " << N << " threads, total ops: " << ops << '\n';
+            std::cout << "TBB " << N << " threads, total ops: " << ops * 4 << " ops per second\n";
         }
 
         {
@@ -215,7 +209,7 @@ void dequeueBenchmark() {
             MutexQueue<SmallPayload> mutexQ;
             populateQueue(mutexQ, CAPACITY);
             auto ops = runDequeBenchmark(mutexQ, N);
-            std::cout << "Mutex Queue " << N << " threads, total ops: " << ops << '\n';
+            std::cout << "Mutex Queue " << N << " threads, total ops: " << ops * 4 << " ops per second\n";
         }
 
         {
@@ -223,7 +217,7 @@ void dequeueBenchmark() {
             MutexDeque<SmallPayload> mutexDQ;
             populateQueue(mutexDQ, CAPACITY);
             auto ops = runDequeBenchmark(mutexDQ, N);
-            std::cout << "Mutex Deque " << N << " threads, total ops: " << ops << '\n';
+            std::cout << "Mutex Deque " << N << " threads, total ops: " << ops * 4 << " ops per second\n";
         }
     }
 }
