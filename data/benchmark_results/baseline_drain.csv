@@ -1,29 +1,57 @@
-queue,threads,total_ops
-MoodyCamel,1,2290970
-AtomicQueue,1,5187033
-Folly,1,1655558
-Boost,1,1445468
-TBB,1,2503789
-Mutex Queue,1,7059140
-Mutex Deque,1,8035730
-MoodyCamel,2,2617366
-AtomicQueue,2,3167086
-Folly,2,1742558
-Boost,2,1339048
-TBB,2,3326768
-Mutex Queue,2,3379739
-Mutex Deque,2,3953992
-MoodyCamel,4,2067674
-AtomicQueue,4,1661536
-Folly,4,1444373
-Boost,4,1152579
-TBB,4,2411877
-Mutex Queue,4,3040525
-Mutex Deque,4,3519712
-MoodyCamel,8,1545506
-AtomicQueue,8,750286
-Folly,8,1134432
-Boost,8,913753
-TBB,8,767381
-Mutex Queue,8,1794647
-Mutex Deque,8,2048345
+Queue,Threads,TotalOps
+MoodyCamel,1,12377988
+AtomicQueue,1,24830004
+Folly,1,8008120
+Boost,1,8177184
+TBB,1,12762684
+std::mutex + std::queue,1,35344532
+std::mutex + std::deque,1,40000000
+MoodyCamel,2,15179676
+AtomicQueue,2,16187740
+Folly,2,8731276
+Boost,2,7650748
+TBB,2,16808600
+std::mutex + std::queue,2,17436608
+std::mutex + std::deque,2,17601260
+MoodyCamel,4,19003968
+AtomicQueue,4,9276288
+Folly,4,6664276
+Boost,4,7066632
+TBB,4,13174664
+std::mutex + std::queue,4,16158824
+std::mutex + std::deque,4,17275692
+MoodyCamel,8,11131060
+AtomicQueue,8,5032688
+Folly,8,5457488
+Boost,8,3886052
+TBB,8,4980940
+std::mutex + std::queue,8,9166296
+std::mutex + std::deque,8,11365648
+MoodyCamel,10,9976396
+AtomicQueue,10,4170580
+Folly,10,5334620
+Boost,10,3501608
+TBB,10,2234824
+std::mutex + std::queue,10,7425376
+std::mutex + std::deque,10,7381324
+MoodyCamel,12,8611608
+AtomicQueue,12,4637104
+Folly,12,5311876
+Boost,12,4338460
+TBB,12,2307716
+std::mutex + std::queue,12,8909308
+std::mutex + std::deque,12,7581772
+MoodyCamel,14,9758828
+AtomicQueue,14,3497608
+Folly,14,5323232
+Boost,14,4371868
+TBB,14,1201420
+std::mutex + std::queue,14,6706272
+std::mutex + std::deque,14,7632244
+MoodyCamel,16,9794560
+AtomicQueue,16,4554060
+Folly,16,5368232
+Boost,16,3537444
+TBB,16,1639836
+std::mutex + std::queue,16,7836164
+std::mutex + std::deque,16,8294068
