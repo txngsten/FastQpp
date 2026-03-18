@@ -44,27 +44,27 @@ namespace fastq {
             }
         }
 
-        bool push() {
+        bool push() noexcept {
             if (size_ == capacity_) {
                 return false;
             }
         }
 
-        bool pop() {
+        bool pop() noexcept {
             if (size_ == 0) {
                 return false;
             }
         }
 
-        std::size_t size() const {
+        std::size_t size() const noexcept {
             return size_;
         }
 
-        std::size_t capacity() const {
+        std::size_t capacity() const noexcept {
             return capacity_;
         }
 
-        bool empty() const {
+        bool empty() const noexcept {
             return size_ == 0;
         }
 
