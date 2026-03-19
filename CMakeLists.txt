@@ -6,11 +6,8 @@ project(FastQpp LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# ---------------- Homebrew root ----------------
-# ensures Boost, TBB, Folly, etc. resolve from Homebrew
-list(APPEND CMAKE_PREFIX_PATH "/opt/homebrew")
-list(APPEND CMAKE_LIBRARY_PATH "/opt/homebrew/lib")
-list(APPEND CMAKE_INCLUDE_PATH "/opt/homebrew/include")
+# For linter
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # ---------------- Dependencies ----------------
 find_package(Threads REQUIRED)
@@ -22,14 +19,14 @@ find_package(glog CONFIG REQUIRED)
 find_package(gflags CONFIG REQUIRED)
 
 # ---------------- Executable ----------------
-add_executable(testbench testing/test.cpp)
+add_executable(testbench )
 
-target_link_libraries(testbench PRIVATE
-        Boost::headers
-        TBB::tbb
-        fmt::fmt
-        Folly::folly
-        glog::glog
-        gflags
-        Threads::Threads
-)
+target_link_libraries(
+  testbench
+  PRIVATE Boost::headers
+          TBB::tbb
+          fmt::fmt
+          Folly::folly
+          glog::glog
+          gflags
+          Threads::Threads)

@@ -1,8 +1,24 @@
 # IDE Settings
 .idea
+.cache
 
-# Moody camel src
+# CMake Build
+cmake-build-debug
+cmake-build-release
+build_scripts
+
+# ThirdParty Queues
 concurrentqueue-master
-
-# Atomic queue src
 atomic_queue-master
+folly
+
+# Compile commands for linters
+compile_commands.json
+pyrightconfig.json
+
+# Mac DS_Store
+*/.DS_Store
+.DS_Store
+
+# Python Env
+.venv

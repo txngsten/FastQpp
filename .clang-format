@@ -3,6 +3,8 @@ IndentWidth: 4
 TabWidth: 4
 UseTab: Never
 
+BreakTemplateDeclarations: Yes
+
 ColumnLimit: 100
 
 BreakBeforeBraces: Attach
@@ -14,5 +16,7 @@ AllowShortLoopsOnASingleLine: false
 PointerAlignment: Left
 
 SortIncludes: true
+
+IndentExternBlock: Indent
 
 NamespaceIndentation: All
