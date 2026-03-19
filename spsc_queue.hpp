@@ -14,7 +14,7 @@ namespace fastq {
     class SPSC {
       public:
         explicit SPSC(std::size_t capacity)
-            : buffer_(nullptr), alloc_(), writer_(0), reader_(0), mask_(0), capacity_(capacity) {
+            : buffer_(nullptr), alloc_(), mask_(0), capacity_(capacity) {
             if (capacity_ == 0 || (capacity_ & (capacity_ - 1)) != 0) {
                 throw std::invalid_argument("Capacity must be non-zero power of 2");
             }
@@ -34,37 +34,37 @@ namespace fastq {
             }
         }
 
-        bool push(T data) noexcept {
-            auto writer = writer_.load(std::memory_order_relaxed);
-            auto reader = reader_.load(std::memory_order_acquire);
+        [[nodiscard]] bool push(T data) noexcept {
+            auto writer = writer_.value.load(std::memory_order_relaxed);
+            auto reader = reader_.value.load(std::memory_order_acquire);
 
             if (writer - reader == capacity_) {
                 return false;
             }
 
             buffer_[writer & mask_] = data;
-            writer_.store(writer + 1, std::memory_order_release);
+            writer_.value.store(writer + 1, std::memory_order_release);
 
             return true;
         }
 
-        bool pop(T& data) noexcept {
-            auto reader = reader_.load(std::memory_order_relaxed);
-            auto writer = writer_.load(std::memory_order_acquire);
+        [[nodiscard]] bool pop(T& data) noexcept {
+            auto reader = reader_.value.load(std::memory_order_relaxed);
+            auto writer = writer_.value.load(std::memory_order_acquire);
 
             if (writer == reader) {
                 return false;
             }
 
             data = buffer_[reader & mask_];
-            reader_.store(reader + 1, std::memory_order_release);
+            reader_.value.store(reader + 1, std::memory_order_release);
 
             return true;
         }
 
         std::size_t size() const noexcept {
-            return writer_.load(std::memory_order_acquire) -
-                   reader_.load(std::memory_order_acquire);
+            return writer_.value.load(std::memory_order_relaxed) -
+                   reader_.value.load(std::memory_order_relaxed);
         }
 
         std::size_t capacity() const noexcept {
@@ -72,16 +72,23 @@ namespace fastq {
         }
 
         bool empty() const noexcept {
-            return writer_.load(std::memory_order_acquire) ==
-                   reader_.load(std::memory_order_acquire);
+            return writer_.value.load(std::memory_order_relaxed) ==
+                   reader_.value.load(std::memory_order_relaxed);
         }
 
       private:
         T* buffer_;
         Allocator alloc_;
 
-        alignas(std::hardware_destructive_interference_size) std::atomic<std::size_t> writer_;
-        alignas(std::hardware_destructive_interference_size) std::atomic<std::size_t> reader_;
+        struct alignas(std::hardware_destructive_interference_size) Writer {
+            std::atomic<std::size_t> value{0};
+        };
+        struct alignas(std::hardware_destructive_interference_size) Reader {
+            std::atomic<std::size_t> value{0};
+        };
+
+        Writer writer_;
+        Reader reader_;
 
         std::size_t mask_;
         std::size_t capacity_;
