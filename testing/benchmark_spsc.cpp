@@ -1,227 +1,133 @@
+#include "../includes/SPSCQueue.h"
 #include "../includes/atomic_queue/atomic_queue.h"
-#include "../includes/concurrentqueue.h"
-#include "../includes/mutex_deque.hpp"
 #include "../includes/mutex_queue.hpp"
-#include <boost/lockfree/queue.hpp>
-#include <folly/MPMCQueue.h>
-#include <tbb/concurrent_queue.h>
-
+#include "../spsc_queue.hpp"
 #include <atomic>
+#include <boost/lockfree/spsc_queue.hpp>
 #include <chrono>
+#include <folly/ProducerConsumerQueue.h>
 #include <iostream>
-#include <memory>
+#include <sys/_types/_u_int64_t.h>
 #include <thread>
-#include <vector>
 
-/* -------------------------------------- Queue Adapters -------------------------------------- */
+#if defined(__APPLE__)
+#include <mach/thread_act.h>
+#include <mach/thread_policy.h>
+#include <pthread.h>
 
-struct SmallPayload {
-    uint64_t value;
-};
+#elif defined(__linux__)
+#include <pthread.h>
+#include <sched.h>
 
-template <typename Q>
-struct QueueAdapter;
+#elif defined(_WIN32)
+#include <windows.h>
+#endif
 
-// Moody Camel
-template <typename T>
-struct QueueAdapter<moodycamel::ConcurrentQueue<T>> {
-    static bool push(auto& q, const T& v) {
-        return q.enqueue(v);
-    }
-    static bool pop(auto& q, T& v) {
-        return q.try_dequeue(v);
-    }
-};
+inline void pinThread(int core_id) {
+    if (core_id < 0)
+        return;
 
-// Folly
-template <typename T>
-struct QueueAdapter<folly::MPMCQueue<T>> {
-    static bool push(auto& q, const T& v) {
-        return q.write(v);
-    }
-    static bool pop(auto& q, T& v) {
-        return q.read(v);
-    }
-};
+#if defined(__APPLE__)
 
-// Boost
-template <typename T>
-struct QueueAdapter<boost::lockfree::queue<T>> {
-    static bool push(auto& q, const T& v) {
-        return q.push(v);
-    }
-    static bool pop(auto& q, T& v) {
-        return q.pop(v);
-    }
-};
+    thread_affinity_policy_data_t policy = {core_id};
+    thread_port_t mach_thread = pthread_mach_thread_np(pthread_self());
 
-// TBB
-template <typename T>
-struct QueueAdapter<tbb::concurrent_queue<T>> {
-    static bool push(auto& q, const T& v) {
-        q.push(v);
-        return true;
-    }
-    static bool pop(auto& q, T& v) {
-        return q.try_pop(v);
-    }
-};
+    thread_policy_set(mach_thread, THREAD_AFFINITY_POLICY, (thread_policy_t)&policy, 1);
 
-// Atomic Queue
-template <typename T, std::size_t N>
-struct QueueAdapter<atomic_queue::AtomicQueue2<T, N>> {
-    static bool push(auto& q, const T& v) {
-        q.push(v);
-        return true;
-    }
-    static bool pop(auto& q, T& v) {
-        return q.try_pop(v);
-    }
-};
+#elif defined(__linux__)
 
-// MutexQ
-template <typename T>
-struct QueueAdapter<MutexQueue<T>> {
-    static bool push(auto& q, const T& v) {
-        q.write(v);
-        return true;
-    }
-    static bool pop(auto& q, T& v) {
-        return q.read(v);
-    }
-};
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
 
-// MutexDQ
-template <typename T>
-struct QueueAdapter<MutexDeque<T>> {
-    static bool push(auto& q, const T& v) {
-        q.write(v);
-        return true;
-    }
-    static bool pop(auto& q, T& v) {
-        return q.read(v);
-    }
-};
+    const int max_cores = std::thread::hardware_concurrency();
+    core_id = core_id % max_cores;
 
-/* -------------------------------------------------------------------------------------------- */
+    CPU_SET(core_id, &cpuset);
 
-template <typename Queue>
-uint64_t runDequeBenchmark(Queue& q, int numThreads) {
-    std::atomic<int> ready{0};
-    std::atomic<bool> start{false};
-    std::atomic<bool> stop{false};
+    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
 
-    std::atomic<uint64_t> totalOps{0};
+#elif defined(_WIN32)
 
-    std::vector<std::thread> workers;
-    for (int i{}; i < numThreads; i++) {
-        workers.emplace_back([&] {
-            SmallPayload v{};
-            uint64_t localOps{};
+    const int max_cores = std::thread::hardware_concurrency();
+    core_id = core_id % max_cores;
+
+    DWORD_PTR mask = (1ull << core_id);
+    SetThreadAffinityMask(GetCurrentThread(), mask);
+
+#else
+
+    // fallback: no-op
+    (void)core_id;
+
+#endif
+}
+
+int main() {
+    std::cout << "SPSC Queue Benchmark Test:\n\n";
+
+    int cpu1{0};
+    int cpu2{1};
+
+    constexpr std::size_t queueSize{1 << 16};
+
+    // FastQ++ bench
+    {
+        std::cout << "fastq::SPSC\n";
+
+        fastq::SPSC<u_int64_t> fastq(queueSize);
+
+        std::atomic<bool> start{false};
+        std::atomic<bool> stop{false};
+        std::atomic<short> ready{};
+
+        u_int64_t ops{0};
+
+        std::thread consumer([&] {
+            pinThread(cpu1);
+
+            u_int64_t payload{0};
+            u_int64_t localOps{0};
 
             ready.fetch_add(1, std::memory_order_release);
 
             while (!start.load(std::memory_order_acquire)) {
-                std::this_thread::yield();
             }
 
             while (!stop.load(std::memory_order_relaxed)) {
-                if (QueueAdapter<Queue>::pop(q, v)) {
+                if (fastq.pop(payload)) {
                     localOps++;
                 }
             }
-            totalOps.fetch_add(localOps, std::memory_order_relaxed);
+
+            ops = localOps;
         });
+
+        std::thread producer([&] {
+            pinThread(cpu2);
+
+            u_int64_t payload{0};
+
+            ready.fetch_add(1, std::memory_order_release);
+
+            while (!start.load(std::memory_order_acquire)) {
+            }
+
+            while (!stop.load(std::memory_order_relaxed)) {
+                while (!fastq.push(payload)) {
+                }
+            }
+        });
+
+        while (ready.load(std::memory_order_acquire) < 2) {
+        }
+
+        start.store(true, std::memory_order_release);
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+        stop.store(true, std::memory_order_release);
+
+        producer.join();
+        consumer.join();
+
+        std::cout << ops / 2 << " ops/sec\n\n";
     }
-
-    while (ready.load(std::memory_order_acquire) < numThreads) {
-        std::this_thread::yield();
-    }
-
-    start.store(true, std::memory_order_release);
-    std::this_thread::sleep_for(std::chrono::milliseconds(250));
-    stop.store(true, std::memory_order_release);
-
-    for (auto& t : workers) {
-        t.join();
-    }
-
-    return totalOps.load();
-}
-
-template <typename Queue>
-void populateQueue(Queue& q, size_t capacity) {
-    for (size_t i{}; i < capacity; i++) {
-        SmallPayload v{static_cast<uint64_t>(i)};
-        QueueAdapter<Queue>::push(q, v);
-    }
-}
-
-void dequeueBenchmark() {
-    constexpr size_t CAPACITY = 10'000'000;
-
-    std::vector<int> numThreads{{1, 2, 4, 8, 10, 12, 14, 16}};
-    for (int N : numThreads) {
-        {
-            // MoodyCamel
-            moodycamel::ConcurrentQueue<SmallPayload> moodyQ(CAPACITY);
-            populateQueue(moodyQ, CAPACITY);
-            auto ops = runDequeBenchmark(moodyQ, N);
-            std::cout << "MoodyCamel " << N << " threads, " << ops * 4 << " ops per second\n";
-        }
-
-        {
-            // AtomicQueue
-            auto atomicQ = std::make_unique<atomic_queue::AtomicQueue2<SmallPayload, CAPACITY>>();
-            populateQueue(*atomicQ, CAPACITY);
-            auto ops = runDequeBenchmark(*atomicQ, N);
-            std::cout << "AtomicQueue " << N << " threads, " << ops * 4 << " ops per second\n";
-        }
-
-        {
-            // Folly
-            folly::MPMCQueue<SmallPayload> follyQ(CAPACITY);
-            populateQueue(follyQ, CAPACITY);
-            auto ops = runDequeBenchmark(follyQ, N);
-            std::cout << "Folly " << N << " threads, total ops: " << ops * 4 << " ops per second\n";
-        }
-
-        {
-            // Boost
-            boost::lockfree::queue<SmallPayload> boostQ(CAPACITY);
-            populateQueue(boostQ, CAPACITY);
-            auto ops = runDequeBenchmark(boostQ, N);
-            std::cout << "Boost " << N << " threads, total ops: " << ops * 4 << " ops per second\n";
-        }
-
-        {
-            // TBB
-            tbb::concurrent_queue<SmallPayload> tbbQ;
-            populateQueue(tbbQ, CAPACITY);
-            auto ops = runDequeBenchmark(tbbQ, N);
-            std::cout << "TBB " << N << " threads, total ops: " << ops * 4 << " ops per second\n";
-        }
-
-        {
-            // std::mutex Queue
-            MutexQueue<SmallPayload> mutexQ;
-            populateQueue(mutexQ, CAPACITY);
-            auto ops = runDequeBenchmark(mutexQ, N);
-            std::cout << "Mutex Queue " << N << " threads, total ops: " << ops * 4
-                      << " ops per second\n";
-        }
-
-        {
-            // std::mutex Deque
-            MutexDeque<SmallPayload> mutexDQ;
-            populateQueue(mutexDQ, CAPACITY);
-            auto ops = runDequeBenchmark(mutexDQ, N);
-            std::cout << "Mutex Deque " << N << " threads, total ops: " << ops * 4
-                      << " ops per second\n";
-        }
-    }
-}
-
-int main() {
-    dequeueBenchmark();
 }
