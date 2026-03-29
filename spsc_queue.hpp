@@ -35,42 +35,40 @@ namespace fastq {
         }
 
         [[nodiscard]] bool push(T data) noexcept {
-            auto writer = writer_.value.load(std::memory_order_relaxed);
+            if (producer_.localWriter_ - producer_.cachedReader_ == capacity_) {
+                producer_.cachedReader_ = reader_.value_.load(std::memory_order_acquire);
 
-            if (writer - cachedReader_ == capacity_) {
-                cachedReader_ = reader_.value.load(std::memory_order_acquire);
-
-                if (writer - cachedReader_ == capacity_) {
+                if (producer_.localWriter_ - producer_.cachedReader_ == capacity_) {
                     return false;
                 }
             }
 
-            buffer_[writer & mask_] = data;
-            writer_.value.store(writer + 1, std::memory_order_release);
+            buffer_[producer_.localWriter_ & mask_] = data;
+            ++producer_.localWriter_;
+            writer_.value_.store(producer_.localWriter_, std::memory_order_release);
 
             return true;
         }
 
         [[nodiscard]] bool pop(T& data) noexcept {
-            auto reader = reader_.value.load(std::memory_order_relaxed);
+            if (consumer_.localReader_ == consumer_.cachedWriter_) {
+                consumer_.cachedWriter_ = writer_.value_.load(std::memory_order_acquire);
 
-            if (cachedWriter_ == reader) {
-                cachedWriter_ = writer_.value.load(std::memory_order_acquire);
-
-                if (cachedWriter_ == reader) {
+                if (consumer_.localReader_ == consumer_.cachedWriter_) {
                     return false;
                 }
             }
 
-            data = buffer_[reader & mask_];
-            reader_.value.store(reader + 1, std::memory_order_release);
+            data = buffer_[consumer_.localReader_ & mask_];
+            ++consumer_.localReader_;
+            reader_.value_.store(consumer_.localReader_, std::memory_order_release);
 
             return true;
         }
 
         std::size_t size() const noexcept {
-            return writer_.value.load(std::memory_order_relaxed) -
-                   reader_.value.load(std::memory_order_relaxed);
+            return writer_.value_.load(std::memory_order_relaxed) -
+                   reader_.value_.load(std::memory_order_relaxed);
         }
 
         std::size_t capacity() const noexcept {
@@ -78,8 +76,8 @@ namespace fastq {
         }
 
         bool empty() const noexcept {
-            return writer_.value.load(std::memory_order_relaxed) ==
-                   reader_.value.load(std::memory_order_relaxed);
+            return writer_.value_.load(std::memory_order_relaxed) ==
+                   reader_.value_.load(std::memory_order_relaxed);
         }
 
       private:
@@ -87,20 +85,30 @@ namespace fastq {
         Allocator alloc_;
 
         struct alignas(std::hardware_destructive_interference_size) Writer {
-            std::atomic<std::size_t> value{0};
+            std::atomic<std::size_t> value_{0};
         };
         struct alignas(std::hardware_destructive_interference_size) Reader {
-            std::atomic<std::size_t> value{0};
+            std::atomic<std::size_t> value_{0};
         };
 
         Writer writer_;
         Reader reader_;
 
-        std::size_t cachedReader_{0};
-        std::size_t cachedWriter_{0};
-
         std::size_t mask_;
         std::size_t capacity_;
+
+        struct alignas(std::hardware_destructive_interference_size) ProducerState {
+            std::size_t localWriter_{0};
+            std::size_t cachedReader_{0};
+            std::size_t lastPublished_{0};
+        };
+        struct alignas(std::hardware_destructive_interference_size) ConsumerState {
+            std::size_t localReader_{0};
+            std::size_t cachedWriter_{0};
+        };
+
+        ProducerState producer_;
+        ConsumerState consumer_;
     };
 } // namespace fastq
 

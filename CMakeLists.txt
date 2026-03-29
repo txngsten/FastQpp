@@ -6,27 +6,28 @@ project(FastQpp LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# For linter
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # ---------------- Dependencies ----------------
 find_package(Threads REQUIRED)
 find_package(Boost REQUIRED)
-find_package(TBB REQUIRED)
 find_package(fmt CONFIG REQUIRED)
 find_package(folly CONFIG REQUIRED)
-find_package(glog CONFIG REQUIRED)
-find_package(gflags CONFIG REQUIRED)
 
 # ---------------- Executable ----------------
-add_executable(testbench )
+add_executable(testbench testing/benchmark_spsc.cpp)
+
+target_include_directories(testbench
+  PRIVATE
+    ${CMAKE_SOURCE_DIR}/includes
+    ${CMAKE_SOURCE_DIR}
+)
 
 target_link_libraries(
   testbench
-  PRIVATE Boost::headers
-          TBB::tbb
-          fmt::fmt
-          Folly::folly
-          glog::glog
-          gflags
-          Threads::Threads)
+  PRIVATE
+    Boost::headers
+    fmt::fmt
+    Folly::folly
+    Threads::Threads
+)

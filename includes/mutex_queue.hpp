@@ -10,9 +10,11 @@ class MutexQueue {
 public:
     MutexQueue() = default;
 
-    void write(T data) {
+    bool write(T data) {
         std::lock_guard<std::mutex> lock(m);
         q.push(std::move(data));
+        
+        return true;
     }
 
     bool read(T& data) {
