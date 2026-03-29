@@ -7,7 +7,6 @@
 #include <chrono>
 #include <folly/ProducerConsumerQueue.h>
 #include <iostream>
-#include <sys/_types/_u_int64_t.h>
 #include <thread>
 
 #if defined(__APPLE__)
@@ -68,6 +67,8 @@ int main() {
     int cpu1{0};
     int cpu2{1};
 
+    short testTime {5};
+
     constexpr std::size_t queueSize{1 << 16};
 
     // FastQ++ bench
@@ -80,13 +81,13 @@ int main() {
         std::atomic<bool> stop{false};
         std::atomic<short> ready{};
 
-        u_int64_t ops{0};
+        std::uint64_t ops{0};
 
         std::thread consumer([&] {
             pinThread(cpu1);
 
-            u_int64_t payload{0};
-            u_int64_t localOps{0};
+            std::uint64_t payload{0};
+            std::uint64_t localOps{0};
 
             ready.fetch_add(1, std::memory_order_release);
 
@@ -105,7 +106,7 @@ int main() {
         std::thread producer([&] {
             pinThread(cpu2);
 
-            u_int64_t payload{0};
+            std::uint64_t payload{0};
 
             ready.fetch_add(1, std::memory_order_release);
 
@@ -122,12 +123,261 @@ int main() {
         }
 
         start.store(true, std::memory_order_release);
-        std::this_thread::sleep_for(std::chrono::seconds(2));
+        std::this_thread::sleep_for(std::chrono::seconds(testTime));
         stop.store(true, std::memory_order_release);
 
         producer.join();
         consumer.join();
 
-        std::cout << ops / 2 << " ops/sec\n\n";
+        std::cout << ops / testTime << " ops/sec\n\n";
+    }
+
+    // Rigtorp bench
+    {
+        std::cout << "rigtorp::SPSC\n";
+
+        rigtorp::SPSCQueue<u_int64_t> rigtorpQ(queueSize);
+
+        std::atomic<bool> start{false};
+        std::atomic<bool> stop{false};
+        std::atomic<short> ready{};
+
+        std::uint64_t ops{0};
+
+        std::thread consumer([&] {
+            pinThread(cpu1);
+
+            std::uint64_t payload{0};
+            std::uint64_t localOps{0};
+
+            ready.fetch_add(1, std::memory_order_release);
+
+            while (!start.load(std::memory_order_acquire)) {
+            }
+
+            while (!stop.load(std::memory_order_relaxed)) {
+                auto* ptr = rigtorpQ.front();
+                if (ptr) {
+                    rigtorpQ.pop();
+                    localOps++;
+                }
+            }
+
+            ops = localOps;
+        });
+
+        std::thread producer([&] {
+            pinThread(cpu2);
+
+            std::uint64_t payload{0};
+
+            ready.fetch_add(1, std::memory_order_release);
+
+            while (!start.load(std::memory_order_acquire)) {
+            }
+
+            while (!stop.load(std::memory_order_relaxed)) {
+                rigtorpQ.emplace(payload);
+            }
+        });
+
+        while (ready.load(std::memory_order_acquire) < 2) {
+        }
+
+        start.store(true, std::memory_order_release);
+        std::this_thread::sleep_for(std::chrono::seconds(testTime));
+        stop.store(true, std::memory_order_release);
+
+        producer.join();
+        consumer.join();
+
+        std::cout << ops / testTime << " ops/sec\n\n";
+    }
+
+    // Folly bench
+    {
+        std::cout << "Folly::ProducerConsumerQueue\n";
+
+        folly::ProducerConsumerQueue<u_int64_t> follyQ(queueSize);
+
+        std::atomic<bool> start{false};
+        std::atomic<bool> stop{false};
+        std::atomic<short> ready{};
+
+        std::uint64_t ops{0};
+
+        std::thread consumer([&] {
+            pinThread(cpu1);
+
+            std::uint64_t payload{0};
+            std::uint64_t localOps{0};
+
+            ready.fetch_add(1, std::memory_order_release);
+
+            while (!start.load(std::memory_order_acquire)) {
+            }
+
+            while (!stop.load(std::memory_order_relaxed)) {
+                if (follyQ.read(payload)) {
+                    localOps++;
+                }
+            }
+
+            ops = localOps;
+        });
+
+        std::thread producer([&] {
+            pinThread(cpu2);
+
+            std::uint64_t payload{0};
+
+            ready.fetch_add(1, std::memory_order_release);
+
+            while (!start.load(std::memory_order_acquire)) {
+            }
+
+            while (!stop.load(std::memory_order_relaxed)) {
+                while (!follyQ.write(payload)) {
+                }
+            }
+        });
+
+        while (ready.load(std::memory_order_acquire) < 2) {
+        }
+
+        start.store(true, std::memory_order_release);
+        std::this_thread::sleep_for(std::chrono::seconds(testTime));
+        stop.store(true, std::memory_order_release);
+
+        producer.join();
+        consumer.join();
+
+        std::cout << ops / testTime << " ops/sec\n\n";
+    }
+
+    // Atomic queue bench
+    {
+        std::cout << "atomic_queue::AtomicQueue2\n";
+
+        atomic_queue::AtomicQueue2<u_int64_t, queueSize> atomicQ;
+
+        std::atomic<bool> start{false};
+        std::atomic<bool> stop{false};
+        std::atomic<short> ready{};
+
+        std::uint64_t ops{0};
+
+        std::thread consumer([&] {
+            pinThread(cpu1);
+
+            std::uint64_t payload{0};
+            std::uint64_t localOps{0};
+
+            ready.fetch_add(1, std::memory_order_release);
+
+            while (!start.load(std::memory_order_acquire)) {
+            }
+
+            while (!stop.load(std::memory_order_relaxed)) {
+                if (atomicQ.try_pop(payload)) {
+                    localOps++;
+                }
+            }
+
+            ops = localOps;
+        });
+
+        std::thread producer([&] {
+            pinThread(cpu2);
+
+            std::uint64_t payload{0};
+
+            ready.fetch_add(1, std::memory_order_release);
+
+            while (!start.load(std::memory_order_acquire)) {
+            }
+
+            while (!stop.load(std::memory_order_relaxed)) {
+                atomicQ.push(payload);
+            }
+        });
+
+        while (ready.load(std::memory_order_acquire) < 2) {
+        }
+
+        start.store(true, std::memory_order_release);
+        std::this_thread::sleep_for(std::chrono::seconds(testTime));
+        stop.store(true, std::memory_order_release);
+
+        producer.join();
+        consumer.join();
+
+        std::cout << ops / testTime << " ops/sec\n\n";
+    }
+
+    // Boost bench
+    {
+        std::cout << "boost::lockfree::spsc_queue\n";
+
+        boost::lockfree::spsc_queue<u_int64_t> boostQ(queueSize);
+
+        std::atomic<bool> start{false};
+        std::atomic<bool> stop{false};
+        std::atomic<short> ready{};
+
+        std::uint64_t ops{0};
+
+        std::thread consumer([&] {
+            pinThread(cpu1);
+
+            std::uint64_t payload{0};
+            std::uint64_t localOps{0};
+
+            ready.fetch_add(1, std::memory_order_release);
+
+            while (!start.load(std::memory_order_acquire)) {
+            }
+
+            while (!stop.load(std::memory_order_relaxed)) {
+                if (boostQ.pop(payload)) {
+                    localOps++;
+                }
+            }
+
+            ops = localOps;
+        });
+
+        std::thread producer([&] {
+            pinThread(cpu2);
+
+            std::int64_t payload{0};
+
+            ready.fetch_add(1, std::memory_order_release);
+
+            while (!start.load(std::memory_order_acquire)) {
+            }
+
+            while (!stop.load(std::memory_order_relaxed)) {
+                while (!boostQ.push(payload)) {
+                }
+            }
+        });
+
+        while (ready.load(std::memory_order_acquire) < 2) {
+        }
+
+        start.store(true, std::memory_order_release);
+        std::this_thread::sleep_for(std::chrono::seconds(testTime));
+        stop.store(true, std::memory_order_release);
+
+        producer.join();
+        consumer.join();
+
+        std::cout << ops / testTime << " ops/sec\n\n";
+    }
+
+    // Mutex std::queue bench
+    {
+
     }
 }

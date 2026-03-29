@@ -36,10 +36,13 @@ namespace fastq {
 
         [[nodiscard]] bool push(T data) noexcept {
             auto writer = writer_.value.load(std::memory_order_relaxed);
-            auto reader = reader_.value.load(std::memory_order_acquire);
 
-            if (writer - reader == capacity_) {
-                return false;
+            if (writer - cachedReader_ == capacity_) {
+                cachedReader_ = reader_.value.load(std::memory_order_acquire);
+
+                if (writer - cachedReader_ == capacity_) {
+                    return false;
+                }
             }
 
             buffer_[writer & mask_] = data;
@@ -50,10 +53,13 @@ namespace fastq {
 
         [[nodiscard]] bool pop(T& data) noexcept {
             auto reader = reader_.value.load(std::memory_order_relaxed);
-            auto writer = writer_.value.load(std::memory_order_acquire);
 
-            if (writer == reader) {
-                return false;
+            if (cachedWriter_ == reader) {
+                cachedWriter_ = writer_.value.load(std::memory_order_acquire);
+
+                if (cachedWriter_ == reader) {
+                    return false;
+                }
             }
 
             data = buffer_[reader & mask_];
@@ -89,6 +95,9 @@ namespace fastq {
 
         Writer writer_;
         Reader reader_;
+
+        std::size_t cachedReader_{0};
+        std::size_t cachedWriter_{0};
 
         std::size_t mask_;
         std::size_t capacity_;
