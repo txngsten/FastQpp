@@ -9,7 +9,7 @@
 #include <type_traits>
 
 namespace fastq {
-    template <typename T, typename Allocator = std::allocator<T>>
+    template <typename T, std::size_t PublishBatch = 32, typename Allocator = std::allocator<T>>
         requires std::is_trivially_copyable_v<T>
     class SPSC {
       public:
@@ -39,13 +39,17 @@ namespace fastq {
                 producer_.cachedReader_ = reader_.value_.load(std::memory_order_acquire);
 
                 if (producer_.localWriter_ - producer_.cachedReader_ == capacity_) {
+                    publish_writer();
                     return false;
                 }
             }
 
             buffer_[producer_.localWriter_ & mask_] = data;
             ++producer_.localWriter_;
-            writer_.value_.store(producer_.localWriter_, std::memory_order_release);
+
+            if (producer_.localWriter_ - producer_.lastPublished_ >= PublishBatch) {
+                publish_writer();
+            }
 
             return true;
         }
@@ -55,15 +59,24 @@ namespace fastq {
                 consumer_.cachedWriter_ = writer_.value_.load(std::memory_order_acquire);
 
                 if (consumer_.localReader_ == consumer_.cachedWriter_) {
+                    publish_reader();
                     return false;
                 }
             }
 
             data = buffer_[consumer_.localReader_ & mask_];
             ++consumer_.localReader_;
-            reader_.value_.store(consumer_.localReader_, std::memory_order_release);
+
+            if (consumer_.localReader_ - consumer_.lastPublished_ >= PublishBatch) {
+                publish_reader();
+            }
 
             return true;
+        }
+
+        void flush() noexcept {
+            publish_reader();
+            publish_writer();
         }
 
         std::size_t size() const noexcept {
@@ -81,6 +94,16 @@ namespace fastq {
         }
 
       private:
+        void publish_writer() noexcept {
+            writer_.value_.store(producer_.localWriter_, std::memory_order_release);
+            producer_.lastPublished_ = producer_.localWriter_;
+        }
+
+        void publish_reader() noexcept {
+            reader_.value_.store(consumer_.localReader_, std::memory_order_release);
+            consumer_.lastPublished_ = consumer_.localReader_;
+        }
+
         T* buffer_;
         Allocator alloc_;
 
@@ -105,6 +128,7 @@ namespace fastq {
         struct alignas(std::hardware_destructive_interference_size) ConsumerState {
             std::size_t localReader_{0};
             std::size_t cachedWriter_{0};
+            std::size_t lastPublished_{0};
         };
 
         ProducerState producer_;
