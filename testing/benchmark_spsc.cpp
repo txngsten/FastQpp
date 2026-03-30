@@ -3,13 +3,17 @@
 #include "../includes/mutex_queue.hpp"
 #include "../includes/readerwriterqueue.h"
 #include "../spsc_queue.hpp"
+#include <algorithm>
 #include <atomic>
 #include <boost/lockfree/spsc_queue.hpp>
 #include <chrono>
 #include <cstdint>
 #include <folly/ProducerConsumerQueue.h>
 #include <iostream>
+#include <vector>
+#include <numeric>
 #include <thread>
+#include <unordered_map>
 
 #if defined(__APPLE__)
 #include <mach/thread_act.h>
@@ -64,10 +68,8 @@ inline void pinThread(int core_id) {
 }
 
 template <typename Queue, typename PushFn, typename PopFn>
-void run_spsc_benchmark(const std::string& name, Queue& q, PushFn push, PopFn pop, int cpu1,
-                        int cpu2, int testTime) {
-    std::cout << name << "\n";
-
+std::vector<std::uint64_t> run_spsc_benchmark(const std::string& name, Queue& q, PushFn push,
+                                              PopFn pop, int cpu1, int cpu2, int testTime) {
     std::atomic<bool> start{false};
     std::atomic<bool> stop{false};
     std::atomic<int> ready{0};
@@ -87,7 +89,7 @@ void run_spsc_benchmark(const std::string& name, Queue& q, PushFn push, PopFn po
         while (!start.load(std::memory_order_acquire)) {
         }
 
-        while (!stop.load(std::memory_order_relaxed)) {
+        while (!stop.load(std::memory_order_acquire)) {
             if (pop(q, payload)) {
                 localSum += payload;
                 localOps++;
@@ -113,8 +115,9 @@ void run_spsc_benchmark(const std::string& name, Queue& q, PushFn push, PopFn po
         while (!start.load(std::memory_order_acquire)) {
         }
 
-        while (!stop.load(std::memory_order_relaxed)) {
+        while (!stop.load(std::memory_order_acquire)) {
             while (!push(q, payload)) {
+                std::this_thread::yield();
             }
             payload++;
         }
@@ -122,16 +125,22 @@ void run_spsc_benchmark(const std::string& name, Queue& q, PushFn push, PopFn po
 
     while (ready.load(std::memory_order_acquire) < 2) {
     }
-
+    
+    auto startTime {std::chrono::steady_clock::now()};
     start.store(true, std::memory_order_release);
+    
     std::this_thread::sleep_for(std::chrono::seconds(testTime));
+    
     stop.store(true, std::memory_order_release);
+    auto endTime{std::chrono::steady_clock::now()};
 
     producer.join();
     consumer.join();
 
-    std::cout << "sum: " << sum << "\n";
-    std::cout << ops / testTime << " ops/sec\n\n";
+    double seconds {std::chrono::duration<double>(endTime - startTime).count()};
+    double opsPerSec {ops / seconds};
+
+    return {static_cast<std::uint64_t>(opsPerSec), sum};
 }
 
 void test_spsc_correctness() {
@@ -169,6 +178,15 @@ void test_spsc_correctness() {
             }
         }
 
+        q.flush();
+        while (q.pop(value)) {
+            if (value != expected) {
+                std::cerr << "ERROR: expected " << expected << " got " << value << '\n';
+                std::abort();
+            }
+            ++expected;
+        }
+
         if (expected != N) {
             std::cerr << "ERROR: missing values. got " << expected << " expected " << N << "\n";
             std::abort();
@@ -193,54 +211,83 @@ int main() {
 
     constexpr std::size_t queueSize{1 << 16};
 
-    fastq::SPSC<std::uint64_t> fastQ(queueSize);
-    run_spsc_benchmark(
-        "fastq::SPSC", fastQ, [](auto& q, auto v) { return q.push(v); },
-        [](auto& q, auto& v) { return q.pop(v); }, cpu1, cpu2, testTime);
+    std::unordered_map<std::string, std::vector<std::uint64_t>> results;
 
-    moodycamel::ReaderWriterQueue<uint64_t> mcQ(queueSize);
-    run_spsc_benchmark(
-        "moodycamel::ReaderWriterQueue", mcQ, [](auto& q, auto v) { return q.enqueue(v); },
-        [](auto& q, auto& out) { return q.try_dequeue(out); }, cpu1, cpu2, testTime);
+    for (int i{}; i < 10; i++) {
+        std::vector<std::uint64_t> result;
 
-    rigtorp::SPSCQueue<std::uint64_t> rigtorpQ(queueSize);
-    run_spsc_benchmark(
-        "rigtorp::SPSC", rigtorpQ,
-        [](auto& q, auto v) {
-            q.emplace(v);
-            return true; // never fails
-        },
-        [](auto& q, auto& out) {
-            auto* ptr = q.front();
-            if (!ptr)
-                return false;
-            out = *ptr;
-            q.pop();
-            return true;
-        },
-        cpu1, cpu2, testTime);
+        fastq::SPSC<std::uint64_t> fastQ(queueSize);
+        result = run_spsc_benchmark(
+            "fastq::SPSC", fastQ, [](auto& q, auto v) { return q.push(v); },
+            [](auto& q, auto& v) { return q.pop(v); }, cpu1, cpu2, testTime);
+        results["fastq"].push_back(result[0]);
 
-    atomic_queue::AtomicQueue2<std::uint64_t, queueSize> atomicQ;
-    run_spsc_benchmark(
-        "atomic_queue::AtomicQueue2", atomicQ,
-        [](auto& q, auto v) {
-            q.push(v); // blocking
-            return true;
-        },
-        [](auto& q, auto& out) { return q.try_pop(out); }, cpu1, cpu2, testTime);
+        moodycamel::ReaderWriterQueue<uint64_t> mcQ(queueSize);
+        result = run_spsc_benchmark(
+            "moodycamel::ReaderWriterQueue", mcQ, [](auto& q, auto v) { return q.try_enqueue(v); },
+            [](auto& q, auto& out) { return q.try_dequeue(out); }, cpu1, cpu2, testTime);
+        results["moody"].push_back(result[0]);
 
-    folly::ProducerConsumerQueue<std::uint64_t> follyQ(queueSize);
-    run_spsc_benchmark(
-        "folly::ProducerConsumerQueue", follyQ, [](auto& q, auto v) { return q.write(v); },
-        [](auto& q, auto& out) { return q.read(out); }, cpu1, cpu2, testTime);
+        rigtorp::SPSCQueue<std::uint64_t> rigtorpQ(queueSize);
+        result = run_spsc_benchmark(
+            "rigtorp::SPSC", rigtorpQ,
+            [](auto& q, auto v) {
+                q.emplace(v);
+                return true; // never fails
+            },
+            [](auto& q, auto& out) {
+                auto* ptr = q.front();
+                if (!ptr)
+                    return false;
+                out = *ptr;
+                q.pop();
+                return true;
+            },
+            cpu1, cpu2, testTime);
+        results["rigtorp"].push_back(result[0]);
 
-    boost::lockfree::spsc_queue<std::uint64_t> boostQ(queueSize);
-    run_spsc_benchmark(
-        "boost::lockfree::spsc_queue", boostQ, [](auto& q, auto v) { return q.push(v); },
-        [](auto& q, auto& out) { return q.pop(out); }, cpu1, cpu2, testTime);
+        atomic_queue::AtomicQueue2<std::uint64_t, queueSize> atomicQ;
+        result = run_spsc_benchmark(
+            "atomic_queue::AtomicQueue2", atomicQ,
+            [](auto& q, auto v) {
+                q.push(v); // blocking
+                return true;
+            },
+            [](auto& q, auto& out) { return q.try_pop(out); }, cpu1, cpu2, testTime);
+        results["atomic"].push_back(result[0]);
 
-    MutexQueue<std::uint64_t> mutexQ;
-    run_spsc_benchmark(
-        "std::mutex std::queue", mutexQ, [](auto& q, auto v) { return q.write(v); },
-        [](auto& q, auto& out) { return q.read(out); }, cpu1, cpu2, testTime);
+        folly::ProducerConsumerQueue<std::uint64_t> follyQ(queueSize);
+        result = run_spsc_benchmark(
+            "folly::ProducerConsumerQueue", follyQ, [](auto& q, auto v) { return q.write(v); },
+            [](auto& q, auto& out) { return q.read(out); }, cpu1, cpu2, testTime);
+        results["folly"].push_back(result[0]);
+
+        boost::lockfree::spsc_queue<std::uint64_t> boostQ(queueSize);
+        result = run_spsc_benchmark(
+            "boost::lockfree::spsc_queue", boostQ, [](auto& q, auto v) { return q.push(v); },
+            [](auto& q, auto& out) { return q.pop(out); }, cpu1, cpu2, testTime);
+        results["boost"].push_back(result[0]);
+
+        MutexQueue<std::uint64_t> mutexQ;
+        result = run_spsc_benchmark(
+            "std::mutex std::queue", mutexQ, [](auto& q, auto v) { return q.write(v); },
+            [](auto& q, auto& out) { return q.read(out); }, cpu1, cpu2, testTime);
+        results["mutex"].push_back(result[0]);
+    }
+
+    for (auto& [queue, ops] : results) {
+        std::cout << queue << " results\n";
+
+        std::sort(ops.begin(), ops.end());
+        std::uint64_t totalOps{std::accumulate(ops.begin(), ops.end(), 0ULL)};
+        std::uint64_t mean{totalOps / 10};
+        std::uint64_t median{(ops[4] + ops[5]) / 2};
+        std::uint64_t maxOps{*std::max_element(ops.begin(), ops.end())};
+        std::uint64_t minOps{*std::min_element(ops.begin(), ops.end())};
+
+        std::cout << "Mean ops/sec: " << mean << '\n';
+        std::cout << "Median ops/sec: " << median << '\n';
+        std::cout << "Max ops/sec: " << maxOps << '\n';
+        std::cout << "Min ops/sec: " << minOps << "\n\n";
+    }
 }
