@@ -23,6 +23,7 @@ namespace fastq {
             buffer_ = std::allocator_traits<Allocator>::allocate(alloc_, capacity_);
         }
 
+        // Non-copyable and non-moveable
         SPSC(const SPSC&) = delete;
         SPSC& operator=(const SPSC&) = delete;
         SPSC(SPSC&& other) = delete;
@@ -79,18 +80,20 @@ namespace fastq {
             publish_writer();
         }
 
+        // If queue is active this is NOT 100% accurate measure of size
         std::size_t size() const noexcept {
             return writer_.value_.load(std::memory_order_relaxed) -
                    reader_.value_.load(std::memory_order_relaxed);
         }
 
-        std::size_t capacity() const noexcept {
-            return capacity_;
-        }
-
+        // If queue is active this is NOT 100% accurate measure of empty
         bool empty() const noexcept {
             return writer_.value_.load(std::memory_order_relaxed) ==
                    reader_.value_.load(std::memory_order_relaxed);
+        }
+
+        std::size_t capacity() const noexcept {
+            return capacity_;
         }
 
       private:
