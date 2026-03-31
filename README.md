@@ -3,15 +3,16 @@ A single producer single consumer lock-free blocking circular buffer queue for t
 It only supports two threads (a producer and consumer) that can NOT switch roles whilst the queue is active.
 This queue also makes use of batch visibility for read and writes which increases throughput at the cost of latency.
 This batch size is a template parameter and can be adjusted.
+****
 
-## > [!WARNING]
-The producer thread needs exclusive ownership over push operations and the consumer thread the same for reads, this queue is designed with that assumption and if broken the behavior is undefined.
-
-Batch visibility means that you must use the flush method (shown bellow in [usage](#usage)).
-This ensures atomics are only touched every 1/BATCH_SIZE operations keeping contention low and throughput high at the cost of latency.
-Batch size is default set to 32 but can be taken as the secondary template argument.
-
-Sizing also must be powers of two since the use a bit-mask is used for wrap around behavior instead of costly modulo/remainder operations.
+> [!WARNING]
+> The producer thread needs exclusive ownership over push operations and the consumer thread the same for reads, this queue is designed with that assumption and if broken the behavior is undefined.
+>
+> Batch visibility means that you must use the flush method (shown bellow in [usage](#usage)).
+> This ensures atomics are only touched every 1/BATCH_SIZE operations keeping contention low and throughput high at the cost of latency.
+> Batch size is default set to 32 but can be taken as the secondary template argument.
+>
+> Sizing also must be powers of two since the use a bit-mask is used for wrap around behavior instead of costly modulo/remainder operations.
 
 ## Usage
 Simply include the spsc_queue.hpp in your project, needs C++20 as concepts are used for template arguments.
