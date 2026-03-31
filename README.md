@@ -1,21 +1,74 @@
 # FastQ++
-A collection of low-latency thread-safe lock-free queues consisting of a single producer single consumer (SPSC), single producer multi-consumer (SPMC), and a multi-producer multi-consumer (MPMC) variants.
-These queues are all implemented with a shared memory ring buffer model and have been benchmarked against a variety of other concurrent queues listed as:
-- [MoodyCamel Queue](https://github.com/cameron314/concurrentqueue)
-- [rigtrop MPMC Queue](https://github.com/rigtorp/MPMCQueue)
-- [Atomic Queue](https://github.com/max0x7ba/atomic_queue)
-- [Folly MPMC Queue](https://github.com/facebook/folly)
-- [Boost Lock-free Queue](https://www.boost.org/doc/libs/latest/doc/html/lockfree.html)
-- [TBB Concurrent Queue](https://www.intel.com/content/www/us/en/docs/onetbb/developer-guide-api-reference/2021-9/concurrent-queue-classes.html)
-****
+A single producer single consumer lock-free blocking circular buffer queue for trivially copyable types.
+It only supports two threads (a producer and consumer) that can NOT switch roles whilst the queue is active.
+This queue also makes use of batch visibility for read and writes which increases throughput at the cost of latency.
+This batch size is a template parameter and can be adjusted.
 
-## Baseline Statistics and Testing Methodology
-To start off, we first need to set a baseline which will also serve as a goal to reach/beat.
-This baseline is for just drain/deque and heavy concurrent operations, this is because the main focus of this project is the SPMC queue and not the SPSC and MPMC queues.
-![Baseline Stats](data/images_and_figures/)
-Testing is done in [test.cpp](testing/test.cpp) and can be altered for different payloads and queue sizes.
-****
+## > [!WARNING]
+The producer thread needs exclusive ownership over push operations and the consumer thread the same for reads, this queue is designed with that assumption and if broken the behavior is undefined.
 
-## Single Producer Single Consumer (SPSC)
-Similar to how the SPMC queue is inspired by a CppCon talk, the SPSC queue is also inspired by another one. In particular, the SPSC is heavily inspired by [Single Producer Single Consumer Lock-free FIFO From the Ground Up – Charles Frasch – CppCon 2023](https://www.youtube.com/watch?v=K3P_Lmq6pw0).
-The queue implementation discussed in that talk can also be found on this [GitHub repository](https://github.com/CharlesFrasch/cppcon2023)
+Batch visibility means that you must use the flush method (shown bellow in [usage](#usage)).
+This ensures atomics are only touched every 1/BATCH_SIZE operations keeping contention low and throughput high at the cost of latency.
+Batch size is default set to 32 but can be taken as the secondary template argument.
+
+Sizing also must be powers of two since the use a bit-mask is used for wrap around behavior instead of costly modulo/remainder operations.
+
+## Usage
+Simply include the spsc_queue.hpp in your project, needs C++20 as concepts are used for template arguments.
+
+```c++
+#include "spsc_queue.hpp"
+
+fastq::SPSC<int> fastQ(32); // Size must be non-zero power of two
+
+bool push = fastQ.push(16); // push is a no-discard method, returns false if queue is full
+
+fastQ.flush(); // Must be done at end of usage to get last items visible for popping
+
+int num;
+bool pop = fastQ.pop(num); // pop is also no-discard method, returns false if queue is empty
+```
+
+## Benchmark
+Now it seems this queue is a bit a of a headache to use (it kind of is) but looking at the results I think it's quite worth it.
+
+### Benchmark environment
+- CPU: Apple M2 (10-core)
+- OS: macOS (Tahoe 26.3.1)
+- Compiler: clang++ (LLVM 21.1.8)
+- Build: Release (-O3)
+- C++ Standard: C++20
+- Threads: 1 producer / 1 consumer (SPSC)
+- Test Duration: 5 sec
+
+Results were averaged over 10 total runs.
+
+### Throughput (ops/sec)
+
+| Queue                        | Mean Ops/sec | Median Ops/sec |
+|------------------------------|-------------:|---------------:|
+| std::mutex std::queue        |   27,017,182 |     26,535,340 |
+| Boost                        |   25,972,865 |     25,979,811 |
+| Folly                        |   25,730,658 |     25,698,531 |
+| Rigtorp                      |   27,021,942 |     26,669,206 |
+| Atomic                       |   53,221,145 |     54,842,159 |
+| Moody Camel                  |  420,688,516 |    420,114,676 |
+| FastQ++                      |  460,050,530 |    460,203,054 |
+
+### Third-Party Queue References
+
+The following open-source queue implementations were used for benchmarking:
+
+- [**Boost Lockfree Queue**](https://github.com/boostorg/lockfree)
+- [**Facebook Folly Queues**](https://github.com/facebook/folly)
+- [**Rigtorp SPSCQueue**](https://github.com/rigtorp/SPSCQueue)
+- [**Moodycamel ReaderWriterQueue**](https://github.com/cameron314/readerwriterqueue)
+- [**Atomic Queue**](https://github.com/max0x7ba/atomic_queue)
+
+## TODO
+- [ ] Proper unit tests  
+- [ ] More robust / generic benchmarking  
+- [ ] SPMC queue implementation  
+- [ ] MPMC queue implementation  
+- [ ] Extend the API  
+- [ ] Platform-specific optimisations
