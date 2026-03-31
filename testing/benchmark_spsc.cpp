@@ -209,14 +209,14 @@ int main() {
 
     short testTime{2};
 
-    constexpr std::size_t queueSize{1 << 16};
+    constexpr std::size_t queueSize{1 << 17};
 
     std::unordered_map<std::string, std::vector<std::uint64_t>> results;
 
     for (int i{}; i < 10; i++) {
         std::vector<std::uint64_t> result;
 
-        fastq::SPSC<std::uint64_t> fastQ(queueSize);
+        fastq::SPSC<std::uint64_t, 512> fastQ(queueSize);
         result = run_spsc_benchmark(
             "fastq::SPSC", fastQ, [](auto& q, auto v) { return q.push(v); },
             [](auto& q, auto& v) { return q.pop(v); }, cpu1, cpu2, testTime);
