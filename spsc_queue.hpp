@@ -35,6 +35,7 @@ namespace fastq {
             }
         }
 
+        // Producer thread must have exclusive control of the push method
         [[nodiscard]] bool push(T data) noexcept {
             if (producer_.localWriter_ - producer_.cachedReader_ == capacity_) {
                 producer_.cachedReader_ = reader_.value_.load(std::memory_order_acquire);
@@ -55,6 +56,7 @@ namespace fastq {
             return true;
         }
 
+        // Consumer thread must have exclusive control of the pop method
         [[nodiscard]] bool pop(T& data) noexcept {
             if (consumer_.localReader_ == consumer_.cachedWriter_) {
                 consumer_.cachedWriter_ = writer_.value_.load(std::memory_order_acquire);
@@ -74,7 +76,8 @@ namespace fastq {
 
             return true;
         }
-
+        
+        // MUST be used at end of queue usage to ensure correct visibility
         void flush() noexcept {
             publish_reader();
             publish_writer();
