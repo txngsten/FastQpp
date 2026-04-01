@@ -42,7 +42,7 @@ Now it seems this queue is a bit a of a headache to use (it kind of is) but look
 - Threads: 1 producer / 1 consumer (SPSC)
 - Test Duration: 5 sec
 
-Results were averaged over 10 total runs.
+Results were averaged over 10 total runs, with a batch size of 512.
 
 ### Throughput (ops/sec)
 
