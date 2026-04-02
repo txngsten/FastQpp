@@ -10,7 +10,7 @@
 
 namespace fastq {
     template <typename T, std::size_t PublishBatch = 32, typename Allocator = std::allocator<T>>
-        requires std::is_trivially_copyable_v<T>
+    requires std::is_trivially_copyable_v<T>
     class SPSC {
       public:
         explicit SPSC(std::size_t capacity)
