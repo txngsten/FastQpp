@@ -10,7 +10,7 @@
 
 namespace fastq {
     template <typename T, std::size_t PublishBatch = 32, typename Allocator = std::allocator<T>>
-    requires std::is_trivially_copyable_v<T>
+        requires std::is_trivially_copyable_v<T>
     class SPSC {
       public:
         explicit SPSC(std::size_t capacity)
@@ -76,7 +76,7 @@ namespace fastq {
 
             return true;
         }
-        
+
         // MUST be used at end of queue usage to ensure correct visibility
         void flush() noexcept {
             publish_reader();
@@ -100,16 +100,6 @@ namespace fastq {
         }
 
       private:
-        void publish_writer() noexcept {
-            writer_.value_.store(producer_.localWriter_, std::memory_order_release);
-            producer_.lastPublished_ = producer_.localWriter_;
-        }
-
-        void publish_reader() noexcept {
-            reader_.value_.store(consumer_.localReader_, std::memory_order_release);
-            consumer_.lastPublished_ = consumer_.localReader_;
-        }
-
         T* buffer_;
         Allocator alloc_;
 
@@ -139,6 +129,16 @@ namespace fastq {
 
         ProducerState producer_;
         ConsumerState consumer_;
+
+        void publish_writer() noexcept {
+            writer_.value_.store(producer_.localWriter_, std::memory_order_release);
+            producer_.lastPublished_ = producer_.localWriter_;
+        }
+
+        void publish_reader() noexcept {
+            reader_.value_.store(consumer_.localReader_, std::memory_order_release);
+            consumer_.lastPublished_ = consumer_.localReader_;
+        }
     };
 } // namespace fastq
 
