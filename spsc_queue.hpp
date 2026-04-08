@@ -12,6 +12,47 @@ namespace fastq {
     template <typename T, std::size_t PublishBatch = 32, typename Allocator = std::allocator<T>>
         requires std::is_trivially_copyable_v<T>
     class SPSC {
+      private:
+        T* buffer_;
+        Allocator alloc_;
+
+        struct alignas(std::hardware_destructive_interference_size) Writer {
+            std::atomic<std::size_t> value_{0};
+        };
+        struct alignas(std::hardware_destructive_interference_size) Reader {
+            std::atomic<std::size_t> value_{0};
+        };
+
+        Writer writer_;
+        Reader reader_;
+
+        std::size_t mask_;
+        std::size_t capacity_;
+
+        struct alignas(std::hardware_destructive_interference_size) ProducerState {
+            std::size_t localWriter_{0};
+            std::size_t cachedReader_{0};
+            std::size_t lastPublished_{0};
+        };
+        struct alignas(std::hardware_destructive_interference_size) ConsumerState {
+            std::size_t localReader_{0};
+            std::size_t cachedWriter_{0};
+            std::size_t lastPublished_{0};
+        };
+
+        ProducerState producer_;
+        ConsumerState consumer_;
+
+        void publish_writer() noexcept {
+            writer_.value_.store(producer_.localWriter_, std::memory_order_release);
+            producer_.lastPublished_ = producer_.localWriter_;
+        }
+
+        void publish_reader() noexcept {
+            reader_.value_.store(consumer_.localReader_, std::memory_order_release);
+            consumer_.lastPublished_ = consumer_.localReader_;
+        }
+
       public:
         explicit SPSC(std::size_t capacity)
             : buffer_(nullptr), alloc_(), mask_(0), capacity_(capacity) {
@@ -97,47 +138,6 @@ namespace fastq {
 
         std::size_t capacity() const noexcept {
             return capacity_;
-        }
-
-      private:
-        T* buffer_;
-        Allocator alloc_;
-
-        struct alignas(std::hardware_destructive_interference_size) Writer {
-            std::atomic<std::size_t> value_{0};
-        };
-        struct alignas(std::hardware_destructive_interference_size) Reader {
-            std::atomic<std::size_t> value_{0};
-        };
-
-        Writer writer_;
-        Reader reader_;
-
-        std::size_t mask_;
-        std::size_t capacity_;
-
-        struct alignas(std::hardware_destructive_interference_size) ProducerState {
-            std::size_t localWriter_{0};
-            std::size_t cachedReader_{0};
-            std::size_t lastPublished_{0};
-        };
-        struct alignas(std::hardware_destructive_interference_size) ConsumerState {
-            std::size_t localReader_{0};
-            std::size_t cachedWriter_{0};
-            std::size_t lastPublished_{0};
-        };
-
-        ProducerState producer_;
-        ConsumerState consumer_;
-
-        void publish_writer() noexcept {
-            writer_.value_.store(producer_.localWriter_, std::memory_order_release);
-            producer_.lastPublished_ = producer_.localWriter_;
-        }
-
-        void publish_reader() noexcept {
-            reader_.value_.store(consumer_.localReader_, std::memory_order_release);
-            consumer_.lastPublished_ = consumer_.localReader_;
         }
     };
 } // namespace fastq
